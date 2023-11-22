@@ -212,7 +212,7 @@ pub struct CoreCreateOpts {
 
     /// Either the system id or its slug.
     #[clap(long)]
-    system: String,
+    system: Vec<String>,
 
     /// Either the system id or its slug.
     #[clap(long)]
@@ -848,7 +848,11 @@ async fn core(opts: &Opts, core_opts: &CoreOpts) -> Result<(), anyhow::Error> {
                     links: links_dictionary_from_arg(&create_opts.links).unwrap_or_default(),
                     metadata: metadata_dictionary_from_arg(&create_opts.metadata)?
                         .unwrap_or_default(),
-                    system: IdOrSlug::parse(&create_opts.system),
+                    systems: create_opts
+                        .system
+                        .iter()
+                        .map(|x| IdOrSlug::parse(x.as_str()))
+                        .collect(),
                     owner_team: IdOrSlug::parse(&create_opts.team),
                 })
                 .await?,

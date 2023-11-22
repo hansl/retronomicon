@@ -52,12 +52,12 @@ pub async fn cores_list(
         .map_err(|e| (Status::InternalServerError, e.to_string()))?
         .into_iter()
         .map(
-            |(core, system, team, core_release, platform)| dto::cores::CoreListItem {
+            |(core, systems, team, core_release, platform)| dto::cores::CoreListItem {
                 id: core.id,
                 slug: core.slug,
                 name: core.name,
                 owner_team: team.into(),
-                system: system.into(),
+                systems: systems.into_iter().map(|s| s.into()).collect(),
                 latest_release: core_release.map(|cr| cr.into_ref(platform)),
             },
         )
@@ -71,7 +71,7 @@ pub async fn cores_details(
     mut db: Db,
     core_id: dto::types::IdOrSlug<'_>,
 ) -> Result<Json<dto::cores::CoreDetailsResponse>, (Status, String)> {
-    let (core, owner_team, system) = models::Core::get_with_owner_and_system(&mut db, core_id)
+    let (core, owner_team, systems) = models::Core::get_with_owner_and_systems(&mut db, core_id)
         .await
         .map_err(|e| (Status::InternalServerError, e.to_string()))?
         .ok_or((Status::NotFound, "Core not found".to_string()))?;
@@ -85,7 +85,7 @@ pub async fn cores_details(
             .map_err(|e| (Status::InternalServerError, e.to_string()))?,
         links: json::links_into_btree_map(core.links)
             .map_err(|e| (Status::InternalServerError, e.to_string()))?,
-        system: system.into(),
+        systems: systems.into_iter().map(|s| s.into()).collect(),
         owner_team: owner_team.into(),
     }))
 }
@@ -103,11 +103,15 @@ pub async fn cores_create(
         description,
         metadata,
         links,
-        system,
+        systems,
         owner_team,
     } = form.into_inner();
 
-    let system = models::System::from_id_or_slug(&mut db, system).await?;
+    let mut systems_vec = Vec::with_capacity(systems.len());
+    for s in systems.into_iter() {
+        let system = models::System::from_id_or_slug(&mut db, s).await?;
+        systems_vec.push(system);
+    }
     let (_user, team, role) =
         models::User::get_user_team_and_role(&mut db, user.into(), owner_team)
             .await
@@ -125,7 +129,7 @@ pub async fn cores_create(
         description,
         json!(links),
         json!(metadata),
-        &system,
+        systems_vec.as_slice(),
         &team,
     )
     .await

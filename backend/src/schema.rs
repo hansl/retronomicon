@@ -48,6 +48,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    core_systems (core_id, system_id) {
+        core_id -> Int4,
+        system_id -> Int4,
+    }
+}
+
+diesel::table! {
     core_tags (tag_id, core_id) {
         core_id -> Int4,
         tag_id -> Int4,
@@ -63,7 +70,6 @@ diesel::table! {
         description -> Text,
         metadata -> Jsonb,
         links -> Jsonb,
-        system_id -> Int4,
         owner_team_id -> Int4,
     }
 }
@@ -223,9 +229,10 @@ diesel::joinable!(core_release_artifacts -> core_releases (core_release_id));
 diesel::joinable!(core_releases -> cores (core_id));
 diesel::joinable!(core_releases -> platforms (platform_id));
 diesel::joinable!(core_releases -> users (uploader_id));
+diesel::joinable!(core_systems -> cores (core_id));
+diesel::joinable!(core_systems -> systems (system_id));
 diesel::joinable!(core_tags -> cores (core_id));
 diesel::joinable!(core_tags -> tags (tag_id));
-diesel::joinable!(cores -> systems (system_id));
 diesel::joinable!(cores -> teams (owner_team_id));
 diesel::joinable!(files -> artifacts (id));
 diesel::joinable!(game_artifacts -> artifacts (artifact_id));
@@ -245,6 +252,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     artifacts,
     core_release_artifacts,
     core_releases,
+    core_systems,
     core_tags,
     cores,
     files,

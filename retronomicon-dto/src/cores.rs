@@ -53,7 +53,7 @@ pub struct CoreListItem {
     pub id: i32,
     pub slug: String,
     pub name: String,
-    pub system: SystemRef,
+    pub systems: Vec<SystemRef>,
     pub owner_team: TeamRef,
     pub latest_release: Option<CoreReleaseRef>,
 }
@@ -66,7 +66,7 @@ pub struct CoreCreateRequest<'v> {
     pub description: &'v str,
     pub links: BTreeMap<&'v str, &'v str>,
     pub metadata: BTreeMap<&'v str, Value>,
-    pub system: IdOrSlug<'v>,
+    pub systems: Vec<IdOrSlug<'v>>,
     pub owner_team: IdOrSlug<'v>,
 }
 
@@ -86,6 +86,6 @@ pub struct CoreDetailsResponse {
     pub description: String,
     pub links: BTreeMap<String, String>,
     pub metadata: BTreeMap<String, Value>,
-    pub system: SystemRef,
+    pub systems: Vec<SystemRef>,
     pub owner_team: TeamRef,
 }

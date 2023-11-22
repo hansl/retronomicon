@@ -9,8 +9,8 @@ use rocket_db_pools::diesel::{AsyncConnection, RunQueryDsl};
 use serde_json::Value as Json;
 use std::collections::BTreeMap;
 
-#[derive(Queryable, Debug, Identifiable)]
-#[diesel(table_name = schema::cores)]
+#[derive(Queryable, Debug, Identifiable, Selectable)]
+#[diesel(table_name = schema::systems)]
 #[diesel(belongs_to(models::Team))]
 pub struct System {
     pub id: i32,

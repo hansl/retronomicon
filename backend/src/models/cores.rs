@@ -12,6 +12,16 @@ mod releases;
 pub use releases::*;
 
 #[derive(Queryable, Debug, Identifiable)]
+#[diesel(primary_key(core_id, system_id))]
+#[diesel(belongs_to(models::Core))]
+#[diesel(belongs_to(models::System))]
+#[diesel(table_name = schema::core_systems)]
+pub struct CoreSystems {
+    pub core_id: i32,
+    pub system_id: i32,
+}
+
+#[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = schema::cores)]
 pub struct Core {
     pub id: i32,
@@ -20,7 +30,6 @@ pub struct Core {
     pub description: String,
     pub metadata: Json,
     pub links: Json,
-    pub system_id: i32,
     pub owner_team_id: i32,
 }
 
@@ -86,7 +95,7 @@ impl Core {
     ) -> Result<
         Vec<(
             Self,
-            models::System,
+            Vec<models::System>,
             models::Team,
             Option<models::CoreRelease>,
             models::Platform,
@@ -113,7 +122,10 @@ impl Core {
                 schema::platforms::table
                     .on(schema::platforms::id.eq(schema::core_releases::platform_id)),
             )
-            .inner_join(schema::systems::table)
+            .inner_join(schema::core_systems::table)
+            .inner_join(
+                schema::systems::table.on(schema::systems::id.eq(schema::core_systems::system_id)),
+            )
             .into_boxed();
 
         if let Some(platform) = platform {
@@ -132,10 +144,9 @@ impl Core {
             query = query.filter(schema::core_releases::date_released.ge(release_date_ge));
         }
 
-        query
+        let cores = query
             .select((
                 schema::cores::all_columns,
-                schema::systems::all_columns,
                 schema::teams::all_columns,
                 Option::<models::CoreRelease>::as_select(),
                 schema::platforms::all_columns,
@@ -144,12 +155,25 @@ impl Core {
             .limit(limit)
             .load::<(
                 Self,
-                models::System,
                 models::Team,
                 Option<models::CoreRelease>,
                 models::Platform,
             )>(db)
-            .await
+            .await?;
+
+        let systems = schema::core_systems::table
+            .inner_join(schema::systems::table)
+            .filter(schema::core_systems::core_id.eq_any(cores.iter().map(|r| r.0.id)))
+            .select(schema::systems::all_columns)
+            .load::<models::System>(db)
+            .await?;
+
+        systems
+            .grouped_by(&cores.)
+            .into_iter()
+            .zip(cores)
+            .map(|(systems, core)| (core.0, systems, core.1, core.2, core.3))
+            .collect::<Vec<_>>()
     }
 
     pub async fn create(
@@ -159,31 +183,45 @@ impl Core {
         description: &str,
         metadata: Json,
         links: Json,
-        system: &models::System,
+        systems: &[models::System],
         owner_team: &models::Team,
     ) -> Result<Self, diesel::result::Error> {
-        diesel::insert_into(schema::cores::table)
+        let result = diesel::insert_into(schema::cores::table)
             .values((
                 schema::cores::slug.eq(slug),
                 schema::cores::name.eq(name),
                 schema::cores::description.eq(description),
                 schema::cores::metadata.eq(metadata),
                 schema::cores::links.eq(links),
-                schema::cores::system_id.eq(system.id),
                 schema::cores::owner_team_id.eq(owner_team.id),
             ))
             .returning(schema::cores::all_columns)
             .get_result::<Self>(db)
-            .await
+            .await?;
+        let system_ids = systems.iter().map(|s| s.id).collect::<Vec<_>>();
+        diesel::insert_into(schema::core_systems::table)
+            .values(
+                system_ids
+                    .iter()
+                    .map(|&system_id| {
+                        (
+                            schema::core_systems::core_id.eq(result.id),
+                            schema::core_systems::system_id.eq(system_id),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .execute(db)
+            .await?;
+        Ok(result)
     }
 
-    pub async fn get_with_owner_and_system(
+    pub async fn get_with_owner_and_systems(
         db: &mut Db,
         id: dto::types::IdOrSlug<'_>,
-    ) -> Result<Option<(Self, models::Team, models::System)>, diesel::result::Error> {
+    ) -> Result<Option<(Self, models::Team, Vec<models::System>)>, diesel::result::Error> {
         let mut query = schema::cores::table
             .inner_join(schema::teams::table)
-            .inner_join(schema::systems::table)
             .into_boxed();
 
         if let Some(id) = id.as_id() {
@@ -194,9 +232,20 @@ impl Core {
             return Ok(None);
         }
 
-        query
-            .first::<(Self, models::Team, models::System)>(db)
-            .await
-            .optional()
+        let results = query.first::<(Self, models::Team)>(db).await.optional()?;
+        let results = if let Some(r) = results {
+            r
+        } else {
+            return Ok(None);
+        };
+
+        let systems = schema::core_systems::table
+            .inner_join(schema::systems::table)
+            .filter(schema::core_systems::core_id.eq(results.0.id))
+            .select(schema::systems::all_columns)
+            .load::<models::System>(db)
+            .await?;
+
+        Ok(Some((results.0, results.1, systems)))
     }
 }
