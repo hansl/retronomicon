@@ -11,7 +11,7 @@ use serde_json::Value as Json;
 mod releases;
 pub use releases::*;
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Identifiable, Selectable, Queryable, Associations, Debug)]
 #[diesel(primary_key(core_id, system_id))]
 #[diesel(belongs_to(models::Core))]
 #[diesel(belongs_to(models::System))]
@@ -21,7 +21,7 @@ pub struct CoreSystems {
     pub system_id: i32,
 }
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = schema::cores)]
 pub struct Core {
     pub id: i32,
@@ -161,19 +161,31 @@ impl Core {
             )>(db)
             .await?;
 
-        let systems = schema::core_systems::table
-            .inner_join(schema::systems::table)
-            .filter(schema::core_systems::core_id.eq_any(cores.iter().map(|r| r.0.id)))
-            .select(schema::systems::all_columns)
-            .load::<models::System>(db)
+        let all_cores = schema::cores::table
+            .select(Core::as_select())
+            .load(db)
             .await?;
 
-        systems
-            .grouped_by(&cores.)
+        let systems = CoreSystems::belonging_to(&cores.iter().map(|r| r.0).collect::<Vec<_>>())
+            .inner_join(schema::systems::table)
+            .select((CoreSystems::as_select(), System::as_select()))
+            .load(db)
+            .await?;
+
+        let cores_with_systems: Vec<(
+            Self,
+            Vec<models::System>,
+            models::Team,
+            Option<models::CoreRelease>,
+            models::Platform,
+        )> = systems
+            .grouped_by(&all_cores)
             .into_iter()
             .zip(cores)
             .map(|(systems, core)| (core.0, systems, core.1, core.2, core.3))
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        Ok(cores_with_systems)
     }
 
     pub async fn create(
